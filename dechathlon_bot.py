@@ -25,7 +25,7 @@ bot = Bot(token=token)
 # context. Error handlers also receive the raised TelegramError object in error.
 def start(update, context):
     """Send a message when the command /start is issued."""
-    update.message.reply_text('Utilitza la comanda /subscribe seguida de una o mes urls de decathlon, el bot tavisara quan hi hagui stock. Si vols parar de rebre notificacions, /unsubscribe')
+    update.message.reply_text('Use the command /subscribe followed by the urls of the decathlon pages you want notifications of. /unsubscribe if you dont want to receive anymore notifications')
 
 
 def help(update, context):
