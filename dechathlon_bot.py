@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import json
 import time
-
+import filecmp
 import requests
 import os
 from bs4 import BeautifulSoup as bs
@@ -25,7 +25,7 @@ bot = Bot(token=token)
 # context. Error handlers also receive the raised TelegramError object in error.
 def start(update, context):
     """Send a message when the command /start is issued."""
-    update.message.reply_text('Use the command /subscribe followed by the urls of the decathlon pages you want notifications of. /unsubscribe if you dont want to receive anymore notifications')
+    update.message.reply_text('Utilitza la comanda /susbcribe seguida de una o mes urls de decathlon, el bot tavisara quan hi hagui stock. Si vols parar de rebre notificacions, /unsubscribe. /outlet_canyon per notificacio canyon outlet\n')
 
 
 def help(update, context):
@@ -39,7 +39,7 @@ def subscribe(update, context):
         update.message.reply_text("You have to put one or more links")
         return
 
-    add_user(update.message.chat_id, context.args)
+    add_url_decathlon(update.message.chat_id, context.args)
 
     print("Adding user " + str(update.message.chat_id) + " with args " + " ".join(context.args))
     update.message.reply_text("You will be notified when there is stock of the product")
@@ -51,9 +51,9 @@ def unsubscribe(update, context):
     update.message.reply_text("Canceled subscriptions")
 
 
-def echo(update, context):
-    """Echo the user message."""
-    update.message.reply_text(update.message.text)
+def rpi_ip(update, context):
+    ip = requests.get('https://api.ipify.org').text
+    update.message.reply_text("The IP for the rpi is " + ip)
 
 
 def error(update, context):
@@ -74,12 +74,12 @@ def write_dict():
         json.dump(users, outfile)
 
 
-def add_user(user_id, urls):
-    if str(user_id) not in users:
-        users[user_id] = urls
+def add_url_decathlon(user_id, urls):
+    if str(user_id) not in users or 'decathlon' not in users[str(user_id)]:
+        users[user_id] = {'decathlon': urls}
     else:
         for url in urls:
-            users[str(user_id)].append(url)
+            users[str(user_id)]['decathlon'].append(url)
     write_dict()
 
 
@@ -99,10 +99,16 @@ def check_stock():
                     print('The product ' + product_name + ' is in stock')
                     bot.send_message(chat_id=user_id, text='El item ' + product_name + ' esta en stock')
                 else:
-                    print('The product ' + product_name + ' still doesn't have stock')
+                    print('The product ' + product_name + ' still doesnt have stock')
 
 
 def check_item_stock(url):
+    in_stock, product_name = check_decathlon_item(url)
+    return in_stock, product_name
+
+
+
+def check_decathlon_item(url):
     headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
     s = requests.Session()
     try:
@@ -113,8 +119,41 @@ def check_item_stock(url):
         product_name = page.find("h1", class_='title--main product-title-right').text
     except requests.exceptions.RequestException as e:
         print("Error scrapping the web", e)
-        product_name, has_stock = '', ''
+        return 0, ''
     return (True, product_name) if not has_stock else (False, product_name)
+
+
+def outlet_canyon(update, context):
+    add_outlet_canyon(str(update.message.chat_id))
+
+    print("Adding user " + str(update.message.chat_id) + " with args " + " ".join(context.args) + 'for canyon outlet')
+    update.message.reply_text("You will be notified when there is a change on the page")
+
+
+def add_outlet_canyon(user_id):
+    if str(user_id) not in users:
+        users[user_id].append({'canyon': 1})
+    write_dict()
+
+
+def check_diff_outlet():
+    for user_id in users:
+        if users[user_id]['canyon']:
+            r = requests.get('https://www.canyon.com/en-es/outlet-bikes/mountain-bikes/')
+
+            page = bs(r.content, features="html.parser")
+            outlet = page.find('div', class_='productGrid__wrapper xlt-searchresults').get_text()
+
+            with open('new_outlet.html', 'w') as f:
+                f.write(outlet.replace(' ', ''))
+                print('Checking outlet')
+                if filecmp.cmp('new_outlet.html', 'old_outlet.html'):
+                    bot.send_message(chat_id=user_id, text='Canyon outlet has changed')
+                    print('Outlet changed')
+            os.replace('new_outlet.html', 'old_outlet.html')
+
+
+
 
 
 def start_bot():
@@ -133,9 +172,9 @@ def start_bot():
     dp.add_handler(CommandHandler("help", help))
     dp.add_handler(CommandHandler("subscribe", subscribe, pass_args=True))
     dp.add_handler(CommandHandler("unsubscribe", unsubscribe))
+    dp.add_handler(CommandHandler("ip", rpi_ip))
+    dp.add_handler(CommandHandler("outlet_canyon", outlet_canyon, pass_args=True))
 
-    # on noncommand i.e message - echo the message on Telegram
-    dp.add_handler(MessageHandler(Filters.text, echo))
 
     # log all errors
     dp.add_error_handler(error)
@@ -153,4 +192,5 @@ if __name__ == '__main__':
     while True:
         print('Checking stock')
         check_stock()
+        check_diff_outlet()
         time.sleep(900)
